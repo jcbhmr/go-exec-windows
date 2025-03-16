@@ -1,7 +1,3 @@
-exec go mod edit -replace github.com/jcbhmr/go-execreplace=$PROJECT
-exec go run . mod graph
-
--- main.go --
 package main
 
 import (
@@ -19,10 +15,3 @@ func main() {
 	}
 	log.Fatal(execreplace.ExecReplace(path, os.Args, os.Environ()))
 }
-
--- go.mod --
-module gowrapper
-
-go 1.24
-
-require github.com/jcbhmr/go-execreplace v1.2.3

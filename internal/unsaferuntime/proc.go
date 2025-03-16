@@ -1,71 +1,46 @@
-//go:build gc && go1.24
-
 package unsaferuntime
 
-type G pointerOnly
+import (
+	_ "unsafe"
+)
 
-func Gdestroy(gp *G) {
-	mp := Getg().m
-	pp := mp.p.ptr()
+//go:linkname ProcPin runtime.procPin
+func ProcPin() int
 
-	casgstatus(gp, _Grunning, _Gdead)
-	gcController.addScannableStack(pp, -int64(gp.stack.hi-gp.stack.lo))
-	if isSystemGoroutine(gp, false) {
-		sched.ngsys.Add(-1)
-	}
-	gp.m = nil
-	locked := gp.lockedm != 0
-	gp.lockedm = 0
-	mp.lockedg = 0
-	gp.preemptStop = false
-	gp.paniconfault = false
-	gp._defer = nil // should be true already but just in case.
-	gp._panic = nil // non-nil for Goexit during panic. points at stack-allocated data.
-	gp.writebuf = nil
-	gp.waitreason = waitReasonZero
-	gp.param = nil
-	gp.labels = nil
-	gp.timer = nil
-	gp.syncGroup = nil
+//go:linkname ProcUnpin runtime.procUnpin
+func ProcUnpin()
 
-	if gcBlackenEnabled != 0 && gp.gcAssistBytes > 0 {
-		// Flush assist credit to the global pool. This gives
-		// better information to pacing if the application is
-		// rapidly creating an exiting goroutines.
-		assistWorkPerByte := gcController.assistWorkPerByte.Load()
-		scanCredit := int64(assistWorkPerByte * float64(gp.gcAssistBytes))
-		gcController.bgScanCredit.Add(scanCredit)
-		gp.gcAssistBytes = 0
-	}
+// func Casgstatus(gp *G, oldval, newval uint32) {
+// 	if (oldval&Gscan != 0) || (newval&Gscan != 0) || oldval == newval {
+// 		fmt.Printf("unsaferuntime: casgstatus: oldval=%x, newval=%x\n", oldval, newval)
+// 		Throw("casgstatus: bad incoming values")
+// 	}
+// 	// TODO
+// }
 
-	dropg()
+func MyGdestroy(gp *G) {
+	mp := MFromUintptr(Getm())
+	pp := mp.PPtr().Ptr()
 
-	if GOARCH == "wasm" { // no threads yet on wasm
-		gfput(pp, gp)
-		return
-	}
+	gp.MyAtomicstatusPtr().Store(Gdead)
 
-	if locked && mp.lockedInt != 0 {
-		print("runtime: mp.lockedInt = ", mp.lockedInt, "\n")
-		if mp.isextra {
-			throw("runtime.Goexit called in a thread that was not created by the Go runtime")
-		}
-		throw("exited a goroutine internally locked to the OS thread")
-	}
-	gfput(pp, gp)
-	if locked {
-		// The goroutine may have locked this thread because
-		// it put it in an unusual kernel state. Kill it
-		// rather than returning it to the thread pool.
+	*gp.MPtr() = nil
+	locked := *gp.LockedmPtr() != 0
+	*gp.LockedmPtr() = 0
+	*mp.LockedgPtr() = 0
+	*gp.PreemptStopPtr() = false
+	*gp.PaniconfaultPtr() = false
+	*gp.DeferPtr() = nil
+	*gp.PanicPtr() = nil
+	*gp.WritebufPtr() = nil
+	*gp.WaitreasonPtr() = WaitReasonZero
+	*gp.ParamPtr() = nil
+	*gp.LabelsPtr() = nil
+	*gp.TimerPtr() = nil
+	*gp.SyncGroupPtr() = nil
 
-		// Return to mstart, which will release the P and exit
-		// the thread.
-		if GOOS != "plan9" { // See golang.org/issue/22227.
-			gogo(&mp.g0.sched)
-		} else {
-			// Clear lockedExt on plan9 since we may end up re-using
-			// this thread.
-			mp.lockedExt = 0
-		}
-	}
+	// dropg?
+
+	_ = pp
+	_ = locked
 }
